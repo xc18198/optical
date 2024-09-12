@@ -105,6 +105,40 @@ def test_direct_transmission(optical_channel, data, device):
         mse = complex_mse_loss(channel_output, data)
     return mse.item()
 
+def create_autoencoder_model(input_dim, latent_dim, channel_params, device):
+    model = SemanticOpticalCommunication(input_dim, latent_dim, channel_params)
+    model.to(device)
+    return model
+
+class AutoencoderModel:
+    def __init__(self, input_dim=100, latent_dim=20, channel_params=None, device=None):
+        if channel_params is None:
+            channel_params = {
+                'fiber_length': 50,
+                'alpha': 0.2,
+                'beta2': -20e-3,
+                'beta3': 0.1e-3,
+                'gamma': 1.3e-3,
+                'D_pmd': 0.1e-3
+            }
+        if device is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.device = device
+        self.model = create_autoencoder_model(input_dim, latent_dim, channel_params, device)
+        self.input_dim = input_dim
+
+    def train(self, data_loader, epochs=50):
+        train(self.model, data_loader, epochs, self.device)
+
+    def predict(self, input_signal):
+        self.model.eval()
+        with torch.no_grad():
+            input_tensor = torch.from_numpy(input_signal).to(self.device).cfloat()
+            input_tensor = input_tensor.view(-1, self.input_dim)
+            output = self.model(input_tensor)
+            return output.cpu().numpy().flatten()
+
 # 使用示例
 if __name__ == "__main__":
     # 设置参数
@@ -122,20 +156,22 @@ if __name__ == "__main__":
     epochs = 50
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 创建模型
-    model = SemanticOpticalCommunication(input_dim, latent_dim, channel_params)
-    optical_channel = OpticalChannelLayer(channel_params)
+    # 创建AutoencoderModel实例
+    autoencoder = AutoencoderModel(input_dim, latent_dim, channel_params, device)
 
     # 生成模拟数据
     data = torch.complex(torch.rand(1000, input_dim), torch.rand(1000, input_dim))
     data_loader = torch.utils.data.DataLoader(data, batch_size=batch_size, shuffle=True)
 
     # 训练模型
-    train(model, data_loader, epochs, device)
+    autoencoder.train(data_loader, epochs)
 
     # 测试模型
     test_data = torch.complex(torch.rand(100, input_dim), torch.rand(100, input_dim))
-    autoencoder_mse = test_autoencoder(model, test_data, device)
+    autoencoder_output = autoencoder.predict(test_data.numpy())
+
+    optical_channel = OpticalChannelLayer(channel_params)
+    autoencoder_mse = test_autoencoder(autoencoder.model, test_data, device)
     direct_mse = test_direct_transmission(optical_channel, test_data, device)
 
     print(f"Autoencoder Mean Squared Error: {autoencoder_mse:.4f}")
@@ -152,10 +188,10 @@ if __name__ == "__main__":
     direct_capacity = channel_capacity(direct_snr)
 
     # 绘制结果
-    model.eval()
+    autoencoder.model.eval()
     with torch.no_grad():
         test_data = test_data.to(device)
-        autoencoder_output = model(test_data)
+        autoencoder_output = autoencoder.model(test_data)
         direct_output = optical_channel(test_data)
 
     # 创建一个大图,包含所有子图

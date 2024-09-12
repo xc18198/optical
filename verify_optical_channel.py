@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from optical_channel import OpticalChannel, generate_qpsk_signal, add_awgn
+from Autoencoder_apply import AutoencoderModel  # 导入自动编码器模型
 
 # 设置参数
 num_symbols = 1000
@@ -25,13 +26,16 @@ channel = OpticalChannel(
 )
 
 # 生成频率轴
-f = np.linspace(-50e9, 50e9, total_samples)  # 减小频率范围
-
+f = np.linspace(-50e9, 50e9, total_samples)  
 # 通过信道传播信号
 output_signal = channel.propagate(noisy_signal, f)
 
-# 绘制结果
-plt.figure(figsize=(15, 10))
+# 应用自动编码器复原信号
+autoencoder = AutoencoderModel(input_dim=len(output_signal), latent_dim=20)
+recovered_signal = autoencoder.predict(output_signal)
+
+# 修改绘图部分
+plt.figure(figsize=(15, 12))
 
 plt.subplot(231)
 plt.scatter(signal.real, signal.imag, alpha=0.5)
@@ -69,10 +73,36 @@ plt.title("Output Signal Spectrum")
 plt.xlabel("Frequency (GHz)")
 plt.ylabel("Power (dB)")
 
+plt.subplot(337)
+plt.scatter(recovered_signal.real, recovered_signal.imag, alpha=0.5)
+plt.title("Recovered Signal (Autoencoder)")
+plt.xlabel("In-phase")
+plt.ylabel("Quadrature")
+
+plt.subplot(338)
+plt.plot(f/1e9, 10*np.log10(np.abs(np.fft.fftshift(np.fft.fft(recovered_signal)))**2))
+plt.title("Recovered Signal Spectrum")
+plt.xlabel("Frequency (GHz)")
+plt.ylabel("Power (dB)")
+
+# 添加误差分析
+plt.subplot(339)
+error = np.abs(signal - recovered_signal)
+plt.hist(error, bins=50)
+plt.title("Error Distribution")
+plt.xlabel("Absolute Error")
+plt.ylabel("Frequency")
+
 plt.tight_layout()
 
 # 保存图像
-plt.savefig('optical_channel_simulation.png', dpi=300, bbox_inches='tight')
+plt.savefig('optical_channel_simulation_with_autoencoder.png', dpi=300, bbox_inches='tight')
 
 # 显示图像（可选）
 plt.show()
+
+# 计算并打印一些性能指标
+mse = np.mean(np.abs(signal - recovered_signal)**2)
+psnr = 10 * np.log10(np.max(np.abs(signal)**2) / mse)
+print(f"均方误差 (MSE): {mse:.4f}")
+print(f"峰值信噪比 (PSNR): {psnr:.2f} dB")
